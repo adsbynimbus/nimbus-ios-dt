@@ -21,7 +21,7 @@ Minor and patch versions are independent — a NimbusDTKit patch release does no
 1. In Xcode, go to **File → Add Package Dependencies…**
 2. Enter the repository URL:
    ```
-   https://github.com/adsbynimbus/nimbus-ios-digitalturbine
+   https://github.com/adsbynimbus/nimbus-ios-dt
    ```
 3. Set the dependency rule to **Up to Next Major Version** and enter `8.0.0` as the minimum.
 4. Click **Add Package** and select the **NimbusDTKit** library when prompted.
@@ -32,14 +32,14 @@ If you're managing dependencies through a `Package.swift` file, add the followin
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/adsbynimbus/nimbus-ios-digitalturbine", from: "8.0.0")
+    .package(url: "https://github.com/adsbynimbus/nimbus-ios-dt", from: "8.0.0")
 ]
 ```
 
 Then add the product to your target:
 
 ```swift
-.product(name: "NimbusDTKit", package: "nimbus-ios-digitalturbine")
+.product(name: "NimbusDTKit", package: "nimbus-ios-dt")
 ```
 
 ### CocoaPods
@@ -61,7 +61,7 @@ pod install
 Navigate to where you call `Nimbus.initialize` and register the `DigitalTurbineExtension`:
  
 ```swift
-import NimbusInMobiKit
+import NimbusDTKit
  
 Nimbus.initialize(publisher: "<publisher>", apiKey: "<apiKey>") {
     DigitalTurbineExtension(accountId: "<accountId>")

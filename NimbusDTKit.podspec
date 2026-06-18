@@ -13,9 +13,10 @@ Pod::Spec.new do |spec|
     spec.static_framework       = true
     spec.source_files           = "Sources/NimbusDTKit/**/*.swift"
     spec.source                 = {
-        :git => "https://github.com/adsbynimbus/nimbus-ios-digitalturbine.git",
+        :git => "https://github.com/adsbynimbus/nimbus-ios-dt.git",
         :tag => spec.version.to_s
     }
 
+    spec.dependency 'NimbusSDK/NimbusKit', '~> 3'
     spec.dependency 'Fyber_Marketplace_SDK', '~> 8.4'
 end

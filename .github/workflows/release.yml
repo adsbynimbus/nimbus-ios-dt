@@ -44,3 +44,22 @@ jobs:
           set -euo pipefail
           : "${PODSPEC:?PODSPEC is not set; refusing to push}"
           pod trunk push "$PODSPEC" --allow-warnings
+  
+  refresh-collection:
+    if: ${{ startsWith(github.repository, 'adsbynimbus/nimbus-ios-') }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.NIMBUS_DISPATCH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.NIMBUS_DISPATCH_APP_KEY }}
+          owner: adsbynimbus
+          repositories: nimbus-ios
+
+      - name: Refresh Collection
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh api repos/adsbynimbus/nimbus-ios/dispatches -f event_type=refresh-collection
