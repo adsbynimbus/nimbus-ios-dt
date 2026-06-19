@@ -30,14 +30,14 @@ public struct DigitalTurbineExtension: NimbusRequestExtension, NimbusRenderExten
     @_documentation(visibility: internal)
     public var controllerType: AdController.Type { DTAdController.self }
     
-    /// Creates an AdMob extension.
+    /// Creates a Digital Turbine extension.
     ///
     /// - Parameter appId: Digital Turbine App ID. If provided, Nimbus initializes the Digital Turbine SDK automatically.
     ///
     /// ##### Usage
     /// ```swift
     /// Nimbus.initialize(publisher: "<publisher>", apiKey: "<apiKey>") {
-    ///     DigitalTurbineExtension(appId: true) // Enables AdMob rendering
+    ///     DigitalTurbineExtension(appId: true) // Enables Digital Turbine rendering
     /// }
     /// ```
     public init(appId: String? = nil) {
