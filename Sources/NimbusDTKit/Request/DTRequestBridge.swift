@@ -13,9 +13,9 @@ protocol DTRequestBridgeType: Sendable {
 }
 
 final class DTRequestBridge: DTRequestBridgeType {
-    public init() {}
+    init() {}
     
-    @concurrent public func bidToken() async throws -> String {
+    @concurrent func bidToken() async throws -> String {
         guard let token = FMPBiddingManager.sharedInstance().biddingToken() else {
             throw NimbusError.dt(stage: .request, detail: "Bidding token was not returned")
         }

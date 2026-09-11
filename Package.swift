@@ -26,7 +26,8 @@ var package = Package(
             dependencies: ["NimbusDTKit"],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
-            ]
+            ],
+            linkerSettings: [.unsafeFlags(["-ObjC"])]
         ),
     ]
 )
