@@ -10,11 +10,15 @@ import NimbusKit
 import IASDKCore
 
 // Internal: Do NOT implement delegate conformance as separate extensions as the methods will not be found in runtime when built as a static library
+//
+// Threading: DT invokes delegate callbacks and completion blocks on arbitrary queues
+// (e.g. image-load failures arrive on the NSURLSession delegate queue). Conformances are
+// explicitly nonisolated so every function must be nonisolated and hop to the main actor itself.
 final class DTAdController: AdController,
-                            @MainActor IAUnitDelegate,
-                            @MainActor IANativeAdDelegate,
-                            @MainActor IAMRAIDContentDelegate,
-                            @MainActor IAVideoContentDelegate {
+                            nonisolated IAUnitDelegate,
+                            nonisolated IANativeAdDelegate,
+                            nonisolated IAMRAIDContentDelegate,
+                            nonisolated IAVideoContentDelegate {
     
     // MARK: - Properties
     
@@ -110,15 +114,25 @@ final class DTAdController: AdController,
             return
         }
         
-        nativeSpot.loadAd(withMarkup: response.bid.adm) { [weak self] nativeAdAssets, error in
-            if let error {
-                self?.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
-                return
-            }
+        // @Sendable: stops the closure from inheriting main-actor isolation. DT's completion
+        // isn't annotated, so we can't trust which queue it arrives on; hop explicitly instead.
+        nativeSpot.loadAd(withMarkup: response.bid.adm) { @Sendable [weak self] nativeAdAssets, error in
+            guard let self else { return }
             
-            self?.nativeAssets = nativeAdAssets
-            self?.adState = .ready
-            self?.presentIfNeeded()
+            // Handed to the main actor once and never touched again on this side.
+            nonisolated(unsafe) let assets = nativeAdAssets
+            let errorDetail = error?.localizedDescription
+            
+            self.runOnMainActor {
+                if let errorDetail {
+                    self.sendNimbusError(.dt(stage: .render, detail: errorDetail))
+                    return
+                }
+                
+                self.nativeAssets = assets
+                self.adState = .ready
+                self.presentIfNeeded()
+            }
         }
     }
     
@@ -161,12 +175,16 @@ final class DTAdController: AdController,
     }
     
     func load(spot: IAAdSpot) {
-        spot.loadAd(withMarkup: response.bid.adm) { [weak self] spot, model, error in
-            Task { @MainActor in
-                guard let self else { return }
-                
-                if let error {
-                    self.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
+        // @Sendable for the same reason as loadNativeAd(): an inherited @MainActor closure would be
+        // checked on entry, before any inner hop could run.
+        spot.loadAd(withMarkup: response.bid.adm) { @Sendable [weak self] _, _, error in
+            guard let self else { return }
+            
+            let errorDetail = error?.localizedDescription
+            
+            self.runOnMainActor {
+                if let errorDetail {
+                    self.sendNimbusError(.dt(stage: .render, detail: errorDetail))
                     return
                 }
                 
@@ -232,7 +250,6 @@ final class DTAdController: AdController,
     
     override func onDestroy() {
         mraidContentController = nil
-        mraidContentController = nil
         videoContentController = nil
         fullscreenController = nil
         inlineController = nil
@@ -243,40 +260,108 @@ final class DTAdController: AdController,
     
     // MARK: - IAUnitDelegate
     
-    func iaParentViewController(for unitController: IAUnitController?) -> UIViewController {
-        guard let adPresentingViewController else {
-            sendNimbusError(.dt(reason: .invalidState, stage: .render, detail: "No adPresentingViewController"))
-            return UIViewController()
-        }
-        return adPresentingViewController
+    nonisolated func iaParentViewController(for unitController: IAUnitController?) -> UIViewController {
+        onMainSync { self.presentingViewControllerOrError() }
     }
     
-    func iaAdDidExpire(_ unitController: IAUnitController?) {
-        sendNimbusError(.dt(stage: .render, detail: "Ad expired"))
+    nonisolated func iaAdDidExpire(_ unitController: IAUnitController?) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: "Ad expired")) }
     }
     
-    func iaAdDidReceiveClick(_ unitController: IAUnitController?) {
-        sendNimbusEvent(.clicked)
+    nonisolated func iaAdDidReceiveClick(_ unitController: IAUnitController?) {
+        runOnMainActor { self.sendNimbusEvent(.clicked) }
     }
     
-    func iaAdWillLogImpression(_ unitController: IAUnitController?) {
-        sendNimbusEvent(.impression)
+    nonisolated func iaAdWillLogImpression(_ unitController: IAUnitController?) {
+        runOnMainActor { self.sendNimbusEvent(.impression) }
     }
     
-    func iaUnitControllerDidDismissFullscreen(_ unitController: IAUnitController?) {
-        // Avoid destroying mraid banner that presented fullscreen
-        if adRenderType == .interstitial || adRenderType == .rewarded {
-            destroy()
+    nonisolated func iaUnitControllerDidDismissFullscreen(_ unitController: IAUnitController?) {
+        runOnMainActor {
+            // Avoid destroying mraid banner that presented fullscreen
+            if self.adRenderType == .interstitial || self.adRenderType == .rewarded {
+                self.destroy()
+            }
         }
     }
     
-    func iaAdDidReward(_ unitController: IAUnitController?) {
-        sendNimbusEvent(.rewardEarned)
+    nonisolated func iaAdDidReward(_ unitController: IAUnitController?) {
+        runOnMainActor { self.sendNimbusEvent(.rewardEarned) }
     }
     
     // MARK: - IANativeAdDelegate
     
-    func iaParentViewController(forAdSpot adSpot: IANativeAdSpot?) -> UIViewController {
+    nonisolated func iaParentViewController(forAdSpot adSpot: IANativeAdSpot?) -> UIViewController {
+        onMainSync { self.presentingViewControllerOrError() }
+    }
+    
+    nonisolated func iaNativeAdDidExpire(_ adSpot: IANativeAdSpot?) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: "Native ad expired")) }
+    }
+    
+    nonisolated func iaNativeAdVideoCompleted(_ adSpot: IANativeAdSpot?) {
+        runOnMainActor { self.sendNimbusEvent(.completed) }
+    }
+    
+    nonisolated func iaNativeAdWillLogImpression(_ adSpot: IANativeAdSpot?) {
+        runOnMainActor { self.sendNimbusEvent(.impression) }
+    }
+    
+    nonisolated func iaNativeAdDidReceiveClick(_ adSpot: IANativeAdSpot?, origin: String?) {
+        runOnMainActor { self.sendNimbusEvent(.clicked) }
+    }
+    
+    nonisolated func iaNativeAd(
+        _ adSpot: IANativeAdSpot?,
+        videoDurationUpdated videoDuration: TimeInterval
+    ) {
+        runOnMainActor { self.storedDuration = videoDuration }
+    }
+    
+    nonisolated func iaNativeAdSpot(
+        _ adSpot: IANativeAdSpot?,
+        didFailToLoadImageFromUrl: URL,
+        with error: any Error
+    ) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription)) }
+    }
+    
+    nonisolated func iaNativeAd(_ adSpot: IANativeAdSpot?, videoInterruptedWithError error: any Error) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription)) }
+    }
+    
+    // MARK: - IAMRAIDContentDelegate
+    
+    nonisolated func iamraidContentController(
+        _ contentController: IAMRAIDContentController?,
+        videoInterruptedWithError error: any Error
+    ) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription)) }
+    }
+    
+    // MARK: - IAVideoContentDelegate
+    
+    nonisolated func iaVideoCompleted(_ contentController: IAVideoContentController?) {
+        runOnMainActor { self.sendNimbusEvent(.completed) }
+    }
+    
+    nonisolated func iaVideoContentController(
+        _ contentController: IAVideoContentController?,
+        videoDurationUpdated videoDuration: TimeInterval
+    ) {
+        runOnMainActor { self.storedDuration = videoDuration }
+    }
+    
+    nonisolated func iaVideoContentController(
+        _ contentController: IAVideoContentController?,
+        videoInterruptedWithError error: any Error
+    ) {
+        runOnMainActor { self.sendNimbusError(.dt(stage: .render, detail: error.localizedDescription)) }
+    }
+    
+    // MARK: - Helpers
+    
+    private func presentingViewControllerOrError() -> UIViewController {
         guard let adPresentingViewController else {
             sendNimbusError(.dt(reason: .invalidState, stage: .render, detail: "No adPresentingViewController"))
             return UIViewController()
@@ -284,51 +369,12 @@ final class DTAdController: AdController,
         return adPresentingViewController
     }
     
-    func iaNativeAdDidExpire(_ adSpot: IANativeAdSpot?) {
-        sendNimbusError(.dt(stage: .render, detail: "Native ad expired"))
-    }
-    
-    func iaNativeAdVideoCompleted(_ adSpot: IANativeAdSpot?) {
-        sendNimbusEvent(.completed)
-    }
-    
-    func iaNativeAdWillLogImpression(_ adSpot: IANativeAdSpot?) {
-        sendNimbusEvent(.impression)
-    }
-    
-    func iaNativeAdDidReceiveClick(_ adSpot: IANativeAdSpot?, origin: String?) {
-        sendNimbusEvent(.clicked)
-    }
-    
-    func iaNativeAd(_ adSpot: IANativeAdSpot?, videoDurationUpdated videoDuration: TimeInterval) {
-        storedDuration = videoDuration
-    }
-    
-    func iaNativeAdSpot(_ adSpot: IANativeAdSpot?, didFailToLoadImageFromUrl: URL, with error: any Error) {
-        sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
-    }
-    
-    func iaNativeAd(_ adSpot: IANativeAdSpot?, videoInterruptedWithError error: any Error) {
-        sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
-    }
-    
-    // MARK: - IAMRAIDContentDelegate
-    
-    func iamraidContentController(_ contentController: IAMRAIDContentController?, videoInterruptedWithError error: any Error) {
-        sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
-    }
-    
-    // MARK: - IAVideoContentDelegate
-    
-    func iaVideoCompleted(_ contentController: IAVideoContentController?) {
-        sendNimbusEvent(.completed)
-    }
-    
-    func iaVideoContentController(_ contentController: IAVideoContentController?, videoDurationUpdated videoDuration: TimeInterval) {
-        storedDuration = videoDuration
-    }
-    
-    func iaVideoContentController(_ contentController: IAVideoContentController?, videoInterruptedWithError error: any Error) {
-        sendNimbusError(.dt(stage: .render, detail: error.localizedDescription))
+    /// Synchronous main-actor hop for delegate methods that must return a value.
+    private nonisolated func onMainSync<T: Sendable>(_ body: @MainActor () -> T) -> T {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated(body)
+        } else {
+            return DispatchQueue.main.sync { MainActor.assumeIsolated(body) }
+        }
     }
 }
