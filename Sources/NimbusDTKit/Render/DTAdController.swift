@@ -76,13 +76,12 @@ final class DTAdController: AdController,
         }
     }
     
-    func loadBannerAd() {
+    func buildBannerAdSpot() throws(NimbusError) -> IAAdSpot {
         mraidContentController = IAMRAIDContentController.build { [weak self] builder in
             builder.mraidContentDelegate = self
         }
         guard let mraidContentController else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAMRAIDContentController"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAMRAIDContentController")
         }
         
         inlineController = IAViewUnitController.build { [weak self] builder in
@@ -90,67 +89,81 @@ final class DTAdController: AdController,
             builder.addSupportedContentController(mraidContentController)
         }
         guard let inlineController else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAViewUnitController"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAViewUnitController")
         }
         
         spot = IAAdSpot.build { builder in
             builder.addSupportedUnitController(inlineController)
         }
         guard let spot else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAAdSpot"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAAdSpot for banner ad")
         }
         
-        load(spot: spot)
+        return spot
     }
     
-    func loadNativeAd() {
+    func loadBannerAd() {
+        do {
+            let spot = try buildBannerAdSpot()
+            load(spot: spot)
+        } catch {
+            sendNimbusError(error)
+        }
+    }
+    
+    func buildNativeAdSpot() throws(NimbusError) -> IANativeAdSpot {
         nativeSpot = IANativeAdSpot.build { [weak self] builder in
             builder.delegate = self
         }
         guard let nativeSpot else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IANativeAdSpot"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IANativeAdSpot")
         }
         
-        // @Sendable: stops the closure from inheriting main-actor isolation. DT's completion
-        // isn't annotated, so we can't trust which queue it arrives on; hop explicitly instead.
-        nativeSpot.loadAd(withMarkup: response.bid.adm) { @Sendable [weak self] nativeAdAssets, error in
-            guard let self else { return }
+        return nativeSpot
+    }
+    
+    func loadNativeAd() {
+        do {
+            let nativeSpot = try buildNativeAdSpot()
             
-            // Handed to the main actor once and never touched again on this side.
-            nonisolated(unsafe) let assets = nativeAdAssets
-            let errorDetail = error?.localizedDescription
-            
-            self.runOnMainActor {
-                if let errorDetail {
-                    self.sendNimbusError(.dt(stage: .render, detail: errorDetail))
-                    return
-                }
+            // @Sendable: stops the closure from inheriting main-actor isolation. DT's completion
+            // isn't annotated, so we can't trust which queue it arrives on; hop explicitly instead.
+            nativeSpot.loadAd(withMarkup: response.bid.adm) { @Sendable [weak self] nativeAdAssets, error in
+                guard let self else { return }
                 
-                self.nativeAssets = assets
-                self.adState = .ready
-                self.presentIfNeeded()
+                // Handed to the main actor once and never touched again on this side.
+                nonisolated(unsafe) let assets = nativeAdAssets
+                let errorDetail = error?.localizedDescription
+                
+                self.runOnMainActor {
+                    if let errorDetail {
+                        self.sendNimbusError(.dt(stage: .render, detail: errorDetail))
+                        return
+                    }
+                    
+                    self.nativeAssets = assets
+                    self.adState = .ready
+                    self.presentIfNeeded()
+                }
             }
+        } catch {
+            sendNimbusError(error)
         }
     }
     
-    func loadFullscreenAd() {
+    func buildFullscreenAdSpot() throws(NimbusError) -> IAAdSpot {
         mraidContentController = IAMRAIDContentController.build { [weak self] builder in
             builder.mraidContentDelegate = self
         }
         guard let mraidContentController else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAMRAIDContentController"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAMRAIDContentController")
         }
         
         videoContentController = IAVideoContentController.build { [weak self] builder in
             builder.videoContentDelegate = self
         }
         guard let videoContentController else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAVideoContentController"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAVideoContentController")
         }
         
         fullscreenController = IAFullscreenUnitController.build { [weak self] builder in
@@ -159,19 +172,26 @@ final class DTAdController: AdController,
             builder.addSupportedContentController(videoContentController)
         }
         guard let fullscreenController else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAFullscreenUnitController"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAFullscreenUnitController")
         }
         
         spot = IAAdSpot.build { builder in
             builder.addSupportedUnitController(fullscreenController)
         }
         guard let spot else {
-            sendNimbusError(.dt(stage: .render, detail: "Could not build IAAdSpot"))
-            return
+            throw .dt(stage: .render, detail: "Could not build IAAdSpot")
         }
         
-        load(spot: spot)
+        return spot
+    }
+    
+    func loadFullscreenAd() {
+        do {
+            let spot = try buildFullscreenAdSpot()
+            load(spot: spot)
+        } catch {
+            sendNimbusError(error)
+        }
     }
     
     func load(spot: IAAdSpot) {
