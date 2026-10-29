@@ -18,5 +18,5 @@ Pod::Spec.new do |spec|
     }
 
     spec.dependency 'NimbusSDK/NimbusKit', '~> 3'
-    spec.dependency 'Fyber_Marketplace_SDK', '~> 8.4'
+    spec.dependency 'Fyber_Marketplace_SDK', '>= 8.4.7', '< 9.0.0'
 end
